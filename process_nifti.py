@@ -2,6 +2,8 @@ import argparse
 import numpy as np
 import nibabel as nib
 import SimpleITK as sitk
+import lapgm
+lapgm.use_gpu(True)
 
 from pathlib import Path
 from shutil import rmtree
@@ -39,6 +41,9 @@ def parse_args():
 
     parser.add_argument('--volume_out', action='store_true', 
                         help='Save out full numpy volume instead of slices.')
+
+    parser.add_argument('--pad_mode', default='constant', choices=['constant', 'edge', 'reflect'],
+                        help='Decides padding mode to use when padding images to same size')
 
     return parser.parse_args()
 
@@ -127,7 +132,7 @@ class NyulNormalize:
             masks = [None] * n_images
 
         for i, (image, mask) in enumerate(zip(images, masks)):
-            voi = = self._get_voi(image, mask)
+            voi = self._get_voi(image, mask)
             landmarks = self.get_landmarks(voi)
             min_p = np.percentile(voi, self.min_percentile)
             max_p = np.percentile(voi, self.max_percentile)
@@ -183,6 +188,15 @@ def n4_debias(data, mask=None, zm_fctr=0.5, bias_fwhm=0.15, conv_thresh=0.001, m
     data[mask] = data[mask] / np.exp(np_logbias[mask])
 
     return data
+
+
+def pad_img(img, shp, mode):
+    pad_ln = [((d2 - d1)//2, (d2-d1)//2)]
+    for d1,d2 in zip(img.shape, shp):
+        diff = d2 - d1
+        pad_ln.append((diff//2, diff//2 + diff % 2))
+
+    return np.pad(img, pad_ln, mode)
 
 
 if __name__ == '__main__':
@@ -251,8 +265,9 @@ if __name__ == '__main__':
 
             elif args.bias_correct == 'lap':
                 mr_data = lapgm.to_sequence_array([mr_img])
-                params = debias_obj.estimate_parameters(mr_data, max_em_iters=35)
+                params = debias_obj.estimate_parameters(mr_data, max_em_iters=50)
                 mr_img = lapgm.debias(mr_data, params).squeeze()
+                mr_img.dtype.metadata = None
 
             if args.normalization == 'max':
                 mr_img = mr_img / mr_img.max()
@@ -274,6 +289,9 @@ if __name__ == '__main__':
                     mr_img[mask] = nyul.normalize_image(mr_img, mask)
                 else:
                     mr_img = nyul.normalize_image(mr_img).reshape(mr_img.shape)
+
+            mr_img = pad_img(mr_img, MAX_SHP, args.pad_mode)
+            ct_img = pad_img(ct_img, MAX_SHP, args.pad_mode)
 
             if args.volume_out:
                 np.save(save_mr / f'{site_id}{site_let}_{direc}_A.npy', mr_img)
