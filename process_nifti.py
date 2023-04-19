@@ -1,8 +1,9 @@
+import lapgm
 import argparse
 import numpy as np
 import nibabel as nib
 import SimpleITK as sitk
-import lapgm
+
 lapgm.use_gpu(True)
 
 from pathlib import Path
@@ -97,7 +98,7 @@ class NyulNormalize:
             raise ValueError
         f = interp1d(landmarks, self.standard_scale, fill_value="extrapolate")
         normalized = f(image)
-        return normalized
+        return normalized if mask is None else normalized.flatten()
 
     @property
     def percentiles(self):
@@ -191,7 +192,7 @@ def n4_debias(data, mask=None, zm_fctr=0.5, bias_fwhm=0.15, conv_thresh=0.001, m
 
 
 def pad_img(img, shp, mode):
-    pad_ln = [((d2 - d1)//2, (d2-d1)//2)]
+    pad_ln = []
     for d1,d2 in zip(img.shape, shp):
         diff = d2 - d1
         pad_ln.append((diff//2, diff//2 + diff % 2))
@@ -236,14 +237,16 @@ if __name__ == '__main__':
             nyul = NyulNormalize()
             imgs, masks = [], []
             for file_path in data_loc.iterdir():
+                if file_path.name == 'overview':
+                    continue
                 imgs.append(nib.load(file_path / 'mr.nii.gz').get_fdata())
-                masks.append((nib.load(file_path / 'mask.nii.gz').get_fdata()) == 0 if \
-                             args.apply_mask else None)
-            nyul.fit(imgs, masks)
-        elif args.bias_correct == 'lap':
+                masks.append((nib.load(file_path / 'mask.nii.gz').get_fdata()) == 1 if \
+                              args.apply_mask else None)
+            nyul._fit(imgs, masks)
+
+        if args.bias_correct == 'lap':
             debias_obj = lapgm.LapGM()
             debias_obj.set_hyperparameters(tau=5e-4, n_classes=4, log_initialize=False)
-
 
         for site_id, file_path in enumerate(data_loc.iterdir()):
             if file_path.name == 'overview':
@@ -266,8 +269,7 @@ if __name__ == '__main__':
             elif args.bias_correct == 'lap':
                 mr_data = lapgm.to_sequence_array([mr_img])
                 params = debias_obj.estimate_parameters(mr_data, max_em_iters=50)
-                mr_img = lapgm.debias(mr_data, params).squeeze()
-                mr_img.dtype.metadata = None
+                mr_img = lapgm.debias(mr_data, params).squeeze().astype(np.float64)
 
             if args.normalization == 'max':
                 mr_img = mr_img / mr_img.max()
@@ -286,6 +288,7 @@ if __name__ == '__main__':
 
             elif args.normalization == 'nyul':
                 if args.apply_mask:
+                    mask = ~mask
                     mr_img[mask] = nyul.normalize_image(mr_img, mask)
                 else:
                     mr_img = nyul.normalize_image(mr_img).reshape(mr_img.shape)
