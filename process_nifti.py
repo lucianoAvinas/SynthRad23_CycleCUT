@@ -6,6 +6,7 @@ import SimpleITK as sitk
 from pathlib import Path
 from shutil import rmtree
 from scipy.ndimage import zoom
+from scipy.interpolate import interp1d
 from sklearn.mixture import GaussianMixture
 
 
@@ -32,11 +33,109 @@ def parse_args():
                         help='Bias correction algorithm to use on volume. If "lap" is selected '
                              'with normalization "gm", then joint method LapGM will be used.')
 
-    parser.add_argument('--normalization', default='none', choices=['none', 'max', 'zscore', 'gm'],
+    parser.add_argument('--normalization', default='none', choices=['none', 'max', 'zscore', 'gm', 'nyul'],
                         help='Normalization algorithm to use on volume. If "gm" is selected '
                              'with bias correction "lap", then joint method LapGM will be used.')
 
+    parser.add_argument('--volume_out', action='store_true', 
+                        help='Save out full numpy volume instead of slices.')
+
     return parser.parse_args()
+
+
+"""Nyul & Udupa piecewise linear histogram matching normalization
+Author: Jacob Reinhold <jcreinhold@gmail.com>
+Created on: 02 Jun 2021
+"""
+
+class NyulNormalize:
+## Pulled and modified from https://github.com/jcreinhold/intensity-normalization
+    def __init__(self, output_min_value=1.0, output_max_value=100.0, min_percentile=1.0,
+                 max_percentile=99.0, percentile_after_min=10.0, percentile_before_max=90.0,
+                 percentile_step=10.0):
+        """Nyul & Udupa piecewise linear histogram matching normalization
+
+        Args:
+            output_min_value: where min-percentile mapped for output normalized image
+            output_max_value: where max-percentile mapped for output normalized image
+            min_percentile: min percentile to account for while finding
+                standard histogram
+            max_percentile: max percentile to account for while finding
+                standard histogram
+            next_percentile_after_min: next percentile after min for finding
+                standard histogram (percentile-step creates intermediate percentiles)
+            prev_percentile_before_max: previous percentile before max for finding
+                standard histogram (percentile-step creates intermediate percentiles)
+            percentile_step: percentile steps between next-percentile-after-min and
+                 prev-percentile-before-max for finding standard histogram
+        """
+        super().__init__()
+        self.output_min_value = output_min_value
+        self.output_max_value = output_max_value
+        self.min_percentile = min_percentile
+        self.max_percentile = max_percentile
+        self.percentile_after_min = percentile_after_min
+        self.percentile_before_max = percentile_before_max
+        self.percentile_step = percentile_step
+        self._percentiles = None
+        self.standard_scale = None
+
+    def _get_voi(self, image, mask=None):
+        return image.flatten() if mask is None else image[mask].flatten()
+
+    def normalize_image(self, image, mask=None):
+        voi = self._get_voi(image, mask)
+
+        landmarks = self.get_landmarks(voi)
+        if self.standard_scale is None:
+            msg = "This class must be fit before being called."
+            raise ValueError
+        f = interp1d(landmarks, self.standard_scale, fill_value="extrapolate")
+        normalized = f(image)
+        return normalized
+
+    @property
+    def percentiles(self):
+        if self._percentiles is None:
+            percs = np.arange(
+                self.percentile_after_min,
+                self.percentile_before_max + self.percentile_step,
+                self.percentile_step,
+            )
+            _percs = ([self.min_percentile], percs, [self.max_percentile])
+            self._percentiles = np.concatenate(_percs)
+        assert isinstance(self._percentiles, np.ndarray)
+        return self._percentiles
+
+    def get_landmarks(self, image):
+        landmarks = np.percentile(image, self.percentiles)
+        return landmarks  # type: ignore[return-value]
+
+    def _fit(self, images, masks=None):
+        """Compute standard scale for piecewise linear histogram matching
+
+        Args:
+            images: set of NifTI MR image paths which are to be normalized
+            masks: set of corresponding masks (if not provided, estimated)
+        """
+        n_percs = len(self.percentiles)
+        standard_scale = np.zeros(n_percs)
+        n_images = len(images)
+        if masks is not None and n_images != len(masks):
+            raise ValueError("There must be an equal number of images and masks.")
+        elif masks is None:
+            masks = [None] * n_images
+
+        for i, (image, mask) in enumerate(zip(images, masks)):
+            voi = = self._get_voi(image, mask)
+            landmarks = self.get_landmarks(voi)
+            min_p = np.percentile(voi, self.min_percentile)
+            max_p = np.percentile(voi, self.max_percentile)
+            f = interp1d([min_p, max_p], [self.output_min_value, self.output_max_value])
+            landmarks = np.array(f(landmarks))
+            standard_scale += landmarks
+
+        self.standard_scale = standard_scale / n_images
 
 
 def n4_debias(data, mask=None, zm_fctr=0.5, bias_fwhm=0.15, conv_thresh=0.001, max_iters=100, 
@@ -107,9 +206,31 @@ if __name__ == '__main__':
     save_mr.mkdir()
     save_ct.mkdir()
 
+    BRAIN_MAX_SHP = (280, 284, 262)
+    PELVIS_MAX_SHP = (586, 410, 153)
+
+    if args.sites == 'both':
+        MAX_SHP = tuple(max(d1,d2) for d1,d2 in zip(BRAIN_MAX_SHP, PELVIS_MAX_SHP))
+    else:
+        MAX_SHP = BRAIN_MAX_SHP if args.sites == 'brain' else PELVIS_MAX_SHP
+
     for site in sites:
         data_loc = task_root / site
         site_let = site[0].upper()
+
+        if args.normalization == 'nyul':
+            nyul = NyulNormalize()
+            imgs, masks = [], []
+            for file_path in data_loc.iterdir():
+                imgs.append(nib.load(file_path / 'mr.nii.gz').get_fdata())
+                masks.append((nib.load(file_path / 'mask.nii.gz').get_fdata()) == 0 if \
+                             args.apply_mask else None)
+            nyul.fit(imgs, masks)
+        elif args.bias_correct == 'lap':
+            debias_obj = lapgm.LapGM()
+            debias_obj.set_hyperparameters(tau=5e-4, n_classes=4, log_initialize=False)
+
+
         for site_id, file_path in enumerate(data_loc.iterdir()):
             if file_path.name == 'overview':
                 continue
@@ -129,8 +250,9 @@ if __name__ == '__main__':
                 mr_img = n4_debias(mr_img)
 
             elif args.bias_correct == 'lap':
-                #algo = ...
-                raise NotImplementedError()
+                mr_data = lapgm.to_sequence_array([mr_img])
+                params = debias_obj.estimate_parameters(mr_data, max_em_iters=35)
+                mr_img = lapgm.debias(mr_data, params).squeeze()
 
             if args.normalization == 'max':
                 mr_img = mr_img / mr_img.max()
@@ -141,15 +263,24 @@ if __name__ == '__main__':
 
             elif args.normalization == 'gm':
                 if args.bias_correct == 'lap':
-                    # re-use algo result here
-                    raise NotImplementedError()
+                    mr_img = mr_img / np.exp(params.mu.max())
                 else:
-                    gm_model = GaussianMixture(n_components=5) ## n_components subject to change
+                    gm_model = GaussianMixture(n_components=4)
                     gm_model.fit(mr_img.flatten()[:,None])
                     mr_img = mr_img / gm_model.means_.max()
 
-            for direc, order in axs:
-                for i, (mr_slice, ct_slice) in enumerate(zip(mr_img.transpose(order), 
-                                                         ct_img.transpose(order))):
-                    np.save(save_mr / f'{site_id}{site_let}_{i}_{direc}_A.npy', mr_slice)
-                    np.save(save_ct / f'{site_id}{site_let}_{i}_{direc}_B.npy', ct_slice)          
+            elif args.normalization == 'nyul':
+                if args.apply_mask:
+                    mr_img[mask] = nyul.normalize_image(mr_img, mask)
+                else:
+                    mr_img = nyul.normalize_image(mr_img).reshape(mr_img.shape)
+
+            if args.volume_out:
+                np.save(save_mr / f'{site_id}{site_let}_{direc}_A.npy', mr_img)
+                np.save(save_ct / f'{site_id}{site_let}_{direc}_A.npy', ct_img)
+            else:
+                for direc, order in axs:
+                    for i, (mr_slice, ct_slice) in enumerate(zip(mr_img.transpose(order), 
+                                                             ct_img.transpose(order))):
+                        np.save(save_mr / f'{site_id}{site_let}_{i}_{direc}_A.npy', mr_slice)
+                        np.save(save_ct / f'{site_id}{site_let}_{i}_{direc}_B.npy', ct_slice)          
