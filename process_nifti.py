@@ -97,8 +97,8 @@ class NyulNormalize:
             msg = "This class must be fit before being called."
             raise ValueError
         f = interp1d(landmarks, self.standard_scale, fill_value="extrapolate")
-        normalized = f(image)
-        return normalized if mask is None else normalized.flatten()
+        normalized = f(voi)
+        return normalized
 
     @property
     def percentiles(self):
