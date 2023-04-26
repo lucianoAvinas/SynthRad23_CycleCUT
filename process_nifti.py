@@ -24,7 +24,7 @@ def parse_args():
     	                     'set to the minimum value found in the volume. May introduce '
     	                     'discontinuity artifacts at mask boundary.')
 
-    parser.add_argument('--directions', default='z', choices=['x', 'y', 'z', 'all'],
+    parser.add_argument('--directions', default='x', choices=['x', 'y', 'z', 'all'],
                         help='Determines which slice directions to save to numpy. Selection '
                              '"all" will save x, y, and z directions for a 2.5D approach.')
 
@@ -232,8 +232,8 @@ if __name__ == '__main__':
     if not args.volume_out:
         temp_shp = [0, 0]
         for _, (_, ix, iy) in axs:
-            temp_shp[0] = max(temp_shp, MAX_SHP[ix])
-            temp_shp[1] = max(temp_shp, MAX_SHP[iy])
+            temp_shp[0] = max(temp_shp[0], MAX_SHP[ix])
+            temp_shp[1] = max(temp_shp[1], MAX_SHP[iy])
         MAX_SHP = tuple(temp_shp)
 
     for site in sites:
