@@ -229,6 +229,13 @@ if __name__ == '__main__':
     else:
         MAX_SHP = BRAIN_MAX_SHP if args.sites == 'brain' else PELVIS_MAX_SHP
 
+    if not args.volume_out:
+        temp_shp = [0, 0]
+        for _, (_, ix, iy) in axs:
+            temp_shp[0] = max(temp_shp, MAX_SHP[ix])
+            temp_shp[1] = max(temp_shp, MAX_SHP[iy])
+        MAX_SHP = tuple(temp_shp)
+
     for site in sites:
         data_loc = task_root / site
         site_let = site[0].upper()
@@ -262,9 +269,11 @@ if __name__ == '__main__':
 
                 mr_img[mask] = mr_img.min()
                 ct_img[mask] = ct_img.min()
+            else:
+                mask = None
 
             if args.bias_correct == 'n4':
-                mr_img = n4_debias(mr_img)
+                mr_img = n4_debias(mr_img, mask)
 
             elif args.bias_correct == 'lap':
                 mr_data = lapgm.to_sequence_array([mr_img])
@@ -272,11 +281,13 @@ if __name__ == '__main__':
                 mr_img = lapgm.debias(mr_data, params).squeeze().astype(np.float64)
 
             if args.normalization == 'max':
-                mr_img = mr_img / mr_img.max()
+                mr_mask = mr_img if mask is None else mr_img[mask]
+                mr_img = mr_img / mr_mask.max()
 
             elif args.normalization == 'zscore':
-                mr_img = mr_img - mr_img.mean()
-                mr_img = mr_img / mr_img.std()
+                mr_mask = mr_img if mask is None else mr_img[mask]
+                mr_img = mr_img - mr_mask.mean()
+                mr_img = mr_img / mr_mask.std()
 
             elif args.normalization == 'gm':
                 if args.bias_correct == 'lap':
@@ -293,15 +304,18 @@ if __name__ == '__main__':
                 else:
                     mr_img = nyul.normalize_image(mr_img).reshape(mr_img.shape)
 
-            mr_img = pad_img(mr_img, MAX_SHP, args.pad_mode)
-            ct_img = pad_img(ct_img, MAX_SHP, args.pad_mode)
-
             if args.volume_out:
+                mr_img = pad_img(mr_img, MAX_SHP, args.pad_mode)
+                ct_img = pad_img(ct_img, MAX_SHP, args.pad_mode)
+
                 np.save(save_mr / f'{site_id}{site_let}_{direc}_A.npy', mr_img)
                 np.save(save_ct / f'{site_id}{site_let}_{direc}_A.npy', ct_img)
             else:
                 for direc, order in axs:
                     for i, (mr_slice, ct_slice) in enumerate(zip(mr_img.transpose(order), 
                                                              ct_img.transpose(order))):
+                        mr_slice = pad_img(mr_slice, MAX_SHP, args.pad_mode)
+                        ct_slice = pad_img(ct_slice, MAX_SHP, args.pad_mode)
+
                         np.save(save_mr / f'{site_id}{site_let}_{i}_{direc}_A.npy', mr_slice)
                         np.save(save_ct / f'{site_id}{site_let}_{i}_{direc}_B.npy', ct_slice)          

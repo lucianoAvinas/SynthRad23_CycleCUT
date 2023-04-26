@@ -712,7 +712,7 @@ class Decoder_all(nn.Module):
             self.n_blocks += 1
             dim //= 2
         # use reflection padding in the last conv layer
-        setattr(self, 'block_{:d}'.format(self.n_blocks), Conv2dBlock(dim + nz, output_dim, 7, 1, 3, norm='none', activation='tanh', pad_type='reflect'))
+        setattr(self, 'block_{:d}'.format(self.n_blocks), Conv2dBlock(dim + nz, output_dim, 7, 1, 3, norm='none', activation='none', pad_type='reflect'))
         self.n_blocks += 1
 
     def forward(self, x, y=None):
@@ -743,7 +743,7 @@ class Decoder(nn.Module):
             self.model += [Upsample2(scale_factor=2), Conv2dBlock(input_dim, dim // 2, 5, 1, 2, norm='ln', activation=activ, pad_type='reflect')]
             dim //= 2
         # use reflection padding in the last conv layer
-        self.model += [Conv2dBlock(dim, output_dim, 7, 1, 3, norm='none', activation='tanh', pad_type='reflect')]
+        self.model += [Conv2dBlock(dim, output_dim, 7, 1, 3, norm='none', activation='none', pad_type='reflect')]
         self.model = nn.Sequential(*self.model)
 
     def forward(self, x, y=None):
