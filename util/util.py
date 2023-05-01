@@ -36,6 +36,7 @@ def find_class_in_module(target_cls_name, module):
 
     return cls
 
+
 def tensor2im(input_image, imtype=np.uint8):
     """"Converts a Tensor array into a numpy image array.
 
@@ -51,10 +52,19 @@ def tensor2im(input_image, imtype=np.uint8):
         image_numpy = image_tensor[0].cpu().float().numpy()  # convert it into a numpy array
         if image_numpy.shape[0] == 1:  # grayscale to RGB
             image_numpy = np.tile(image_numpy, (3, 1, 1))
-        image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * 255.0  # post-processing: tranpose and scaling
+
+        image_numpy -= image_numpy.min()
+        image_numpy = image_numpy/image_numpy.max() * 255
+
+        if image_numpy.shape[0] == 2: # repeat last
+            image_numpy = np.array([*image_numpy, image_numpy[1]])
+
+        image_numpy = np.transpose(image_numpy, (1, 2, 0))
+        #image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * 255.0  # post-processing: tranpose and scaling
     else:  # if it is a numpy array, do nothing
         image_numpy = input_image
     return image_numpy.astype(imtype)
+
 
 
 def diagnose_network(net, name='network'):
