@@ -224,6 +224,9 @@ if __name__ == '__main__':
     BRAIN_MAX_SHP = (280, 284, 262)
     PELVIS_MAX_SHP = (586, 410, 153)
 
+    CT_MN = -722.48
+    CT_SD = 513.261
+
     if args.sites == 'both':
         MAX_SHP = tuple(max(d1,d2) for d1,d2 in zip(BRAIN_MAX_SHP, PELVIS_MAX_SHP))
     else:
@@ -263,6 +266,8 @@ if __name__ == '__main__':
 
             mr_img = nib.load(file_path / 'mr.nii.gz').get_fdata()
             ct_img = nib.load(file_path / 'ct.nii.gz').get_fdata()
+
+            ct_img = (ct_img - CT_MN) / CT_SD
 
             if args.apply_mask:
                 mask = (nib.load(file_path / 'mask.nii.gz').get_fdata()) == 0
