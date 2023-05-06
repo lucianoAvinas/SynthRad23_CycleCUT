@@ -62,8 +62,8 @@ class NumpyDataset(BaseDataset):
             index_B = random.randint(0, self.B_size - 1)
         B_path = self.B_paths[index_B]
 
-        A_img = np.load(A_path)
-        B_img = np.load(B_path)
+        A_img = np.load(A_path).astype(np.float32)
+        B_img = np.load(B_path).astype(np.float32)
 
         A = self.transform_A(A_img)
         B = self.transform_B(B_img)
