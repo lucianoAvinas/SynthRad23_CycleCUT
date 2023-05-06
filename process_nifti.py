@@ -305,8 +305,8 @@ if __name__ == '__main__':
                     mr_img = nyul.normalize_image(mr_img).reshape(mr_img.shape)
 
             if args.volume_out:
-                mr_img = pad_img(mr_img, MAX_SHP, args.pad_mode)
-                ct_img = pad_img(ct_img, MAX_SHP, args.pad_mode)
+                mr_img = pad_img(mr_img, MAX_SHP, args.pad_mode)[None]
+                ct_img = pad_img(ct_img, MAX_SHP, args.pad_mode)[None]
 
                 np.save(save_mr / f'{site_id}{site_let}_{direc}_A.npy', mr_img)
                 np.save(save_ct / f'{site_id}{site_let}_{direc}_A.npy', ct_img)
@@ -314,8 +314,8 @@ if __name__ == '__main__':
                 for direc, order in axs:
                     for i, (mr_slice, ct_slice) in enumerate(zip(mr_img.transpose(order), 
                                                              ct_img.transpose(order))):
-                        mr_slice = pad_img(mr_slice, MAX_SHP, args.pad_mode)
-                        ct_slice = pad_img(ct_slice, MAX_SHP, args.pad_mode)
+                        mr_slice = pad_img(mr_slice, MAX_SHP, args.pad_mode)[None]
+                        ct_slice = pad_img(ct_slice, MAX_SHP, args.pad_mode)[None]
 
                         np.save(save_mr / f'{site_id}{site_let}_{i}_{direc}_A.npy', mr_slice)
                         np.save(save_ct / f'{site_id}{site_let}_{i}_{direc}_B.npy', ct_slice)          
