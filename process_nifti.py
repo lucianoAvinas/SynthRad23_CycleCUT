@@ -46,6 +46,9 @@ def parse_args():
     parser.add_argument('--pad_mode', default='constant', choices=['constant', 'edge', 'reflect'],
                         help='Decides padding mode to use when padding images to same size')
 
+    parser.add_argument('--div_4', action='store_true', 
+                        help='Makes sure excess padding is divisible by 4.')
+
     return parser.parse_args()
 
 
@@ -221,8 +224,8 @@ if __name__ == '__main__':
     save_mr.mkdir()
     save_ct.mkdir()
 
-    BRAIN_MAX_SHP = (280, 284, 262)
-    PELVIS_MAX_SHP = (586, 410, 153)
+    BRAIN_MAX_SHP = (280, 284, 264) if args.div_4 else (280, 284, 262)
+    PELVIS_MAX_SHP = (588, 412, 156) if args.div_4 else (586, 410, 153)
 
     CT_MN = -722.48
     CT_SD = 513.261
